@@ -1,0 +1,23 @@
+[project]
+name = "wave-equation"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Oliver Atkinson", email = "oliver.atkinson96@gmail.com" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "matplotlib>=3.11.1",
+    "numpy>=2.5.2",
+]
+
+[project.scripts]
+wave-equation = "pipe_wave:simulate"
+
+[tool.uv.build-backend]
+module-name = "pipe_wave"
+
+[build-system]
+requires = ["uv_build>=0.12.4,<0.13.0"]
+build-backend = "uv_build"
