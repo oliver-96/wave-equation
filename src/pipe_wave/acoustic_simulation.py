@@ -138,11 +138,13 @@ class WaveSimulation:
 
         if self.left_boundary == "membrane":
             assert self.membrane is not None
-            pressure_difference = self.pressure[0] - self.membrane.back_pressure
-            self.membrane.step(pressure_difference)
-            self.velocity[0] = -(
-                self.membrane.area / self.cross_sectional_area
-            ) * self.membrane.velocity
+            volume_velocity = self.membrane.step_from_pipe_cell(
+                self.pressure[0],
+                density=self.rho,
+                half_cell_width=self.dx / 2,
+                pipe_area=self.cross_sectional_area,
+            )
+            self.velocity[0] = -volume_velocity / self.cross_sectional_area
 
         # RIGHT BOUNDARY
         if self.right_boundary == "closed":
@@ -156,11 +158,13 @@ class WaveSimulation:
         
         if self.right_boundary == "membrane":
             assert self.membrane is not None
-            pressure_difference = self.pressure[-1] - self.membrane.back_pressure
-            self.membrane.step(pressure_difference)
-            self.velocity[self.N] = (
-                self.membrane.area / self.cross_sectional_area
-            ) * self.membrane.velocity
+            volume_velocity = self.membrane.step_from_pipe_cell(
+                self.pressure[-1],
+                density=self.rho,
+                half_cell_width=self.dx / 2,
+                pipe_area=self.cross_sectional_area,
+            )
+            self.velocity[self.N] = volume_velocity / self.cross_sectional_area
 
     def source_input(self) -> float:
         return self.source_amplitude * np.sin(self.phase)

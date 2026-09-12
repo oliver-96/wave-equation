@@ -19,12 +19,16 @@ _VALID_RIGHT_BOUNDARIES: set[RightBoundaryKind] = {"open", "closed", "membrane"}
 
 
 class PressureDrivenBoundary(Protocol):
-    """A movable boundary advanced from its pressure difference."""
+    """A movable boundary that couples itself to the final pipe half-cell."""
 
-    area: float
-    back_pressure: float
     dt: float
-    velocity: float
 
-    def step(self, pressure: float) -> None:
-        """Advance the boundary state using the supplied pressure difference."""
+    def step_from_pipe_cell(
+        self,
+        cell_pressure: float,
+        *,
+        density: float,
+        half_cell_width: float,
+        pipe_area: float,
+    ) -> float:
+        """Advance the boundary and return its outward volume velocity."""

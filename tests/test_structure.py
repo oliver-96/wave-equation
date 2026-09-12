@@ -2,7 +2,15 @@
 
 import unittest
 
-from pipe_wave import CoupledPipeSystem, MembraneConfig, PipeConfig, WaveSimulation
+import math
+
+from pipe_wave import (
+    CoupledPipeSystem,
+    Membrane,
+    MembraneConfig,
+    PipeConfig,
+    WaveSimulation,
+)
 
 
 class WaveSimulationConfigurationTests(unittest.TestCase):
@@ -40,3 +48,31 @@ class WaveSimulationConfigurationTests(unittest.TestCase):
         self.assertIsNotNone(system.membrane)
         assert system.membrane is not None
         self.assertEqual(system.membrane.time, dt)
+
+    def test_membrane_uses_half_cell_wall_pressure(self) -> None:
+        membrane = Membrane(
+            mass=0.01,
+            damping=0.0,
+            stiffness=0.0,
+            area=0.01,
+            dt=1e-6,
+        )
+
+        volume_velocity = membrane.step_from_pipe_cell(
+            2.0,
+            density=1.2,
+            half_cell_width=0.0025,
+            pipe_area=0.01,
+        )
+
+        acoustic_conductance = 1 / (1.2 * 0.0025)
+        mechanical_conductance = 0.01 / 0.01 * 0.01 / 0.01
+        expected_wall_pressure = 2.0 * acoustic_conductance / (
+            acoustic_conductance + mechanical_conductance
+        )
+        expected_velocity = expected_wall_pressure * 0.01 / 0.01 * 1e-6
+
+        self.assertTrue(math.isclose(membrane.velocity, expected_velocity))
+        self.assertTrue(
+            math.isclose(volume_velocity, membrane.area * expected_velocity)
+        )

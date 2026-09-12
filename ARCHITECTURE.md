@@ -66,12 +66,13 @@ rejected during construction.
 | `velocity_source`  | Drives the boundary velocity directly with the source wave |
 | `membrane`         | End follows the coupled membrane's volume velocity  |
 
-For a `membrane` boundary, the local acoustic pressure minus the membrane's
-rear-side pressure is passed to `membrane.step()` during boundary application.
-The resulting membrane volume velocity is converted to acoustic particle
-velocity as `membrane.area / cross_sectional_area * membrane.velocity` and
-assigned to the end face. The application uses a `velocity_source` on the
-left and a `membrane` on the right with matching areas.
+For a `membrane` boundary, the pipe gives the device the nearest cell pressure
+and final half-cell geometry. The membrane solves for its wall pressure using
+the acoustic momentum equation over that half-cell, advances its mechanics,
+then returns outward volume velocity. The pipe converts this to end-face
+particle velocity by dividing by `cross_sectional_area`. The application uses
+a `velocity_source` on the left and a `membrane` on the right with matching
+areas.
 
 The driving waveform is a sine oscillator (`source_input()`) built
 from an accumulated `phase` (incremented each step by `2π ·
