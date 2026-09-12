@@ -4,17 +4,18 @@ Guidance for AI coding agents (and humans) working in this repo.
 
 ## What this is
 
-A 1D acoustic wave-equation simulator: a small numerical model
-(`WaveSimulation`) driven by a leapfrog finite-difference scheme on a
-staggered grid, plus a live matplotlib animation to visualize it. See
+A 1D acoustic wave-equation simulator: `WaveSimulation`, driven by a leapfrog
+finite-difference scheme on a staggered grid, can be coupled to a lumped
+mass–spring–damper `Membrane` at either pipe boundary. A live matplotlib
+animation visualizes the pipe pressure. See
 [`ARCHITECTURE.md`](ARCHITECTURE.md) for the module layout and physics
 model in detail.
 
 ## Environment
 
 - Python `>=3.13` (see `.python-version`), managed with **uv**.
-- Dependencies: `numpy`, `matplotlib`. No dev/test/lint dependencies
-  are configured yet.
+- Dependencies: `numpy`, `matplotlib`. Tests use the Python standard library's
+  `unittest`; no linting or type-checking dependency is configured.
 
 ## Common commands
 
@@ -22,27 +23,34 @@ model in detail.
 uv sync                 # install/update the environment from uv.lock
 uv run wave-equation    # run the console-script entry point (opens the plot)
 uv run python -m pipe_wave.run   # equivalent, direct module invocation
+uv run python -m unittest discover -s tests  # run the structural/API tests
 uv add <package>        # add a runtime dependency
 ```
 
-There is currently **no test suite and no linter/formatter/type-checker
-configured** (no `pytest`, `ruff`, or `mypy` in `pyproject.toml`). Don't
-assume `uv run pytest` or `uv run ruff check` will work until one is
-added — verify changes by running the app and/or a quick `uv run
-python -c "..."` smoke check against `pipe_wave.acoustic_simulation.WaveSimulation`.
+There is no configured linter, formatter, or type checker (`ruff` and `mypy`
+are not in `pyproject.toml`). Don't assume `uv run pytest` or `uv run ruff
+check` will work; use the standard-library test command above and/or a quick
+`uv run python -c "..."` smoke check against `WaveSimulation`.
 
 ## Conventions
 
 - **Keep physics and UI separate.** Numerical/model code belongs in
-  `src/pipe_wave/acoustic_simulation.py` and must not import matplotlib.
-  Visualization/animation/widget code belongs in
-  `src/pipe_wave/app.py`. `src/pipe_wave/run.py` is intentionally a
+  `src/pipe_wave/acoustic_simulation.py`, `src/pipe_wave/membrane.py`, or
+  `src/pipe_wave/system.py` and must not import matplotlib. Shared boundary
+  contracts live in `src/pipe_wave/boundaries.py`; reusable constructor values
+  live in `src/pipe_wave/config.py`. Visualization/animation/widget code
+  belongs in `src/pipe_wave/app.py`. `src/pipe_wave/run.py` is intentionally a
   thin wrapper only (console-script entry point) — don't grow it.
-- **Boundary conditions are a closed, validated set.** Valid values
-  live in `BoundaryKind` / `_VALID_BOUNDARIES` in `acoustic_simulation.py`.
-  Adding a new boundary kind means updating both the `Literal` alias
-  and the `if` branch in `WaveSimulation.apply_boundary_conditions`, plus
-  the docstring listing what each kind means physically.
+- **Boundary conditions are side-specific and validated.** Valid values live
+  in `LeftBoundaryKind` / `RightBoundaryKind` in `boundaries.py`. Adding a new
+  kind means updating its supported-side alias, validation set, and branch in
+  `WaveSimulation.apply_boundary_conditions`, plus the physical description.
+- **Membrane coupling is at either boundary.** The `membrane` boundary passes
+  the local acoustic pressure difference to `Membrane.step()` and uses its
+  updated velocity at the corresponding velocity face. A `WaveSimulation`
+  accepts one membrane, so it cannot use a membrane at both ends. Keep the
+  acoustic and mechanical time steps consistent when constructing coupled
+  models.
 - **Don't change existing numerical formulas incidentally.** If a
   task is about structure/naming/typing/docs, preserve the math in
   `step()` / `apply_boundary_conditions()` exactly — treat changes to
@@ -60,11 +68,22 @@ There's no test suite, so verify manually:
 
 ```sh
 uv run python -c "
-from pipe_wave.acoustic_simulation import WaveSimulation
-sim = WaveSimulation(left_boundary='velocity_source', right_boundary='closed')
+from pipe_wave import CoupledPipeSystem, MembraneConfig, PipeConfig
+dt = 1e-6
+system = CoupledPipeSystem.from_configs(
+    PipeConfig(
+        dt=dt,
+        left_boundary='velocity_source',
+        right_boundary='membrane',
+        cross_sectional_area=0.01,
+    ),
+    MembraneConfig(
+        mass=0.01, damping=0.02, stiffness=100.0, area=0.01, dt=dt,
+    ),
+)
 for _ in range(100):
-    sim.step()
-print('finite:', __import__('numpy').isfinite(sim.pressure).all())
+    system.step()
+print('finite:', __import__('numpy').isfinite(system.pipe.pressure).all())
 "
 ```
 

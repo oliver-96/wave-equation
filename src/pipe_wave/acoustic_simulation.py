@@ -1,18 +1,15 @@
-from typing import Literal
+"""Acoustic finite-difference model for a one-dimensional pipe."""
 
 import numpy as np
 
-
-
-BoundaryKind = Literal["open", "closed", "pressure_source", "velocity_source", "membrane"]
-
-_VALID_BOUNDARIES: set[BoundaryKind] = {
-    "open",
-    "closed",
-    "pressure_source",
-    "velocity_source",
-    "membrane",
-}
+from pipe_wave.boundaries import (
+    LeftBoundaryKind,
+    PressureDrivenBoundary,
+    RightBoundaryKind,
+    _VALID_LEFT_BOUNDARIES,
+    _VALID_RIGHT_BOUNDARIES,
+)
+from pipe_wave.config import PipeConfig
 
 
 class WaveSimulation:
@@ -34,11 +31,13 @@ class WaveSimulation:
         sound_speed: float = 343.0,
         density: float = 1.2,
         dt: float = 1e-6,
-        left_boundary: BoundaryKind = "open",
-        right_boundary: BoundaryKind = "open",
-        source_amplitude: float = 1,
-        source_frequency: float = 100,
-    ):
+        left_boundary: LeftBoundaryKind = "open",
+        right_boundary: RightBoundaryKind = "open",
+        source_amplitude: float = 1.0,
+        source_frequency: float = 100.0,
+        cross_sectional_area: float = 1.0,
+        membrane: PressureDrivenBoundary | None = None,
+    ) -> None:
 
         self.length = length
         self.N = cells
@@ -47,15 +46,30 @@ class WaveSimulation:
         self.dt = dt
         self.source_amplitude = source_amplitude
         self.source_frequency = source_frequency
+        self.cross_sectional_area = cross_sectional_area
+        self.membrane = membrane
 
-        if left_boundary not in _VALID_BOUNDARIES:
+        if cross_sectional_area <= 0:
+            raise ValueError("cross_sectional_area must be positive")
+
+        if left_boundary not in _VALID_LEFT_BOUNDARIES:
             raise ValueError(f"Invalid left boundary: {left_boundary}")
 
-        if right_boundary not in _VALID_BOUNDARIES:
+        if right_boundary not in _VALID_RIGHT_BOUNDARIES:
             raise ValueError(f"Invalid right boundary: {right_boundary}")
 
         self.left_boundary = left_boundary
         self.right_boundary = right_boundary
+
+        uses_membrane = (
+            left_boundary == "membrane" or right_boundary == "membrane"
+        )
+        if uses_membrane and membrane is None:
+            raise ValueError("A membrane boundary requires a Membrane instance")
+        if left_boundary == "membrane" and right_boundary == "membrane":
+            raise ValueError("One Membrane instance cannot terminate both pipe ends")
+        if membrane is not None and membrane.dt != dt:
+            raise ValueError("membrane.dt must equal the pipe time step")
 
         self.dx = length / cells
 
@@ -68,7 +82,28 @@ class WaveSimulation:
         self.time = 0.0
         self.phase = 0.0
 
-    def apply_boundary_conditions(self, membrane) -> None:
+    @classmethod
+    def from_config(
+        cls,
+        config: PipeConfig,
+        membrane: PressureDrivenBoundary | None = None,
+    ) -> "WaveSimulation":
+        """Construct a simulation from a reusable configuration object."""
+        return cls(
+            length=config.length,
+            cells=config.cells,
+            sound_speed=config.sound_speed,
+            density=config.density,
+            dt=config.dt,
+            left_boundary=config.left_boundary,
+            right_boundary=config.right_boundary,
+            source_amplitude=config.source_amplitude,
+            source_frequency=config.source_frequency,
+            cross_sectional_area=config.cross_sectional_area,
+            membrane=membrane,
+        )
+
+    def apply_boundary_conditions(self) -> None:
         """Patch the two boundary velocities according to boundary kind.
 
         - ``closed``: rigid wall, velocity pinned to zero.
@@ -77,6 +112,7 @@ class WaveSimulation:
           source waveform.
         - ``velocity_source``: drives the boundary velocity directly
           with the source waveform.
+        - ``membrane``: moves the pipe end with a pressure-driven membrane.
         """
 
         # LEFT BOUNDARY
@@ -100,6 +136,14 @@ class WaveSimulation:
         if self.left_boundary == "velocity_source":
             self.velocity[0] = self.source_input()
 
+        if self.left_boundary == "membrane":
+            assert self.membrane is not None
+            pressure_difference = self.pressure[0] - self.membrane.back_pressure
+            self.membrane.step(pressure_difference)
+            self.velocity[0] = -(
+                self.membrane.area / self.cross_sectional_area
+            ) * self.membrane.velocity
+
         # RIGHT BOUNDARY
         if self.right_boundary == "closed":
             self.velocity[self.N] = 0
@@ -110,15 +154,18 @@ class WaveSimulation:
                 * self.pressure[-1]
             )
         
-        if self.right_boundary == 'membrane':
-            membrane_pressure = self.pressure[-1]
-            membrane.step(membrane_pressure)
-            self.velocity[self.N] = membrane.velocity
+        if self.right_boundary == "membrane":
+            assert self.membrane is not None
+            pressure_difference = self.pressure[-1] - self.membrane.back_pressure
+            self.membrane.step(pressure_difference)
+            self.velocity[self.N] = (
+                self.membrane.area / self.cross_sectional_area
+            ) * self.membrane.velocity
 
     def source_input(self) -> float:
         return self.source_amplitude * np.sin(self.phase)
 
-    def step(self, membrane) -> None:
+    def step(self) -> None:
         """Advance the simulation by one time step (leapfrog update)."""
         # 1. Update velocity from pressure gradient
         self.velocity[1:self.N] -= (
@@ -127,7 +174,7 @@ class WaveSimulation:
         )
 
         # 2. Apply boundary conditions
-        self.apply_boundary_conditions(membrane)
+        self.apply_boundary_conditions()
 
         # 3. Update pressure from velocity gradient
         self.pressure -= (
@@ -138,9 +185,9 @@ class WaveSimulation:
         self.time += self.dt
         self.phase += 2 * np.pi * self.source_frequency * self.dt
 
-    def advance(self, duration: float, membrane) -> None:
+    def advance(self, duration: float) -> None:
         """Step the simulation forward by ``duration`` seconds."""
         steps = round(duration / self.dt)
 
         for _ in range(steps):
-            self.step(membrane)
+            self.step()
