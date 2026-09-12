@@ -84,10 +84,11 @@ discontinuity (no sudden jump/impulse injected into the pipe).
 
 `Membrane` represents a lumped mass–spring–damper system. It is initialized
 with `mass`, `damping`, `stiffness`, `area`, and `dt`; its state is
-`displacement`, `velocity`, and `time`. On `step(pressure)`, pressure is
-converted to force with `pressure * area`, then the membrane advances using
-the resulting force minus damping and spring restoring forces. Its updated
-velocity supplies the pipe's right-boundary velocity when coupled as above.
+`displacement`, `velocity`, and `time`. Its low-level `step(pressure)` method
+advances from a pressure difference. Its `step_from_pipe_cell(...)` boundary
+method combines that mechanics with the final half-cell acoustic momentum
+equation, then returns outward volume velocity. This keeps membrane-specific
+mass, damping, stiffness, and displacement out of the acoustic solver.
 
 ## The visualization layer (`app.py`)
 
@@ -95,19 +96,15 @@ velocity supplies the pipe's right-boundary velocity when coupled as above.
 
 - Builds `PipeConfig` and `MembraneConfig` values, then creates one
   `CoupledPipeSystem` with a pipe and right-boundary membrane.
-- Sets up a `matplotlib` figure with the pressure line plot and an
-  elapsed-time text label.
+- Sets up a `matplotlib` figure with an instantaneous pressure-profile plot,
+  a rolling membrane-displacement trace, and an elapsed-time text label.
 - Drives the simulation forward with `FuncAnimation`, calling
   `system.advance(...)` once per animation frame and updating the line
-  data — `blit=True` is used for performance, which means only
-  artists explicitly returned from the frame-update callback get
-  redrawn each frame.
+  data. Blitting is disabled because the membrane trace scrolls and rescales
+  as the simulation advances.
 
-Anything interactive (sliders, buttons) added here needs to account
-for that `blit=True` behavior — widgets living on the same canvas can
-appear unresponsive because the animation's saved background
-overwrites their redraws each frame. (This is why a frequency slider
-that was previously here was removed rather than debugged in place.)
+The history trace is intentionally bounded to a short rolling window so the
+live display stays responsive during long simulations.
 
 ## Entry point (`run.py` / `__init__.py`)
 
