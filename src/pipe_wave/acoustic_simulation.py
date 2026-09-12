@@ -2,17 +2,20 @@ from typing import Literal
 
 import numpy as np
 
-BoundaryKind = Literal["open", "closed", "pressure_source", "velocity_source"]
+
+
+BoundaryKind = Literal["open", "closed", "pressure_source", "velocity_source", "membrane"]
 
 _VALID_BOUNDARIES: set[BoundaryKind] = {
     "open",
     "closed",
     "pressure_source",
     "velocity_source",
+    "membrane",
 }
 
 
-class Simulation:
+class WaveSimulation:
     """1D acoustic wave equation solver on a staggered grid.
 
     Pressure is stored at ``N`` cell centers (``self.pressure``,
@@ -65,7 +68,7 @@ class Simulation:
         self.time = 0.0
         self.phase = 0.0
 
-    def apply_boundary_conditions(self) -> None:
+    def apply_boundary_conditions(self, membrane) -> None:
         """Patch the two boundary velocities according to boundary kind.
 
         - ``closed``: rigid wall, velocity pinned to zero.
@@ -75,6 +78,8 @@ class Simulation:
         - ``velocity_source``: drives the boundary velocity directly
           with the source waveform.
         """
+
+        # LEFT BOUNDARY
         if self.left_boundary == "closed":
             self.velocity[0] = 0
 
@@ -95,6 +100,7 @@ class Simulation:
         if self.left_boundary == "velocity_source":
             self.velocity[0] = self.source_input()
 
+        # RIGHT BOUNDARY
         if self.right_boundary == "closed":
             self.velocity[self.N] = 0
 
@@ -103,11 +109,16 @@ class Simulation:
                 2 * self.dt / (self.rho * self.dx)
                 * self.pressure[-1]
             )
+        
+        if self.right_boundary == 'membrane':
+            membrane_pressure = self.pressure[-1]
+            membrane.step(membrane_pressure)
+            self.velocity[self.N] = membrane.velocity
 
     def source_input(self) -> float:
         return self.source_amplitude * np.sin(self.phase)
 
-    def step(self) -> None:
+    def step(self, membrane) -> None:
         """Advance the simulation by one time step (leapfrog update)."""
         # 1. Update velocity from pressure gradient
         self.velocity[1:self.N] -= (
@@ -116,7 +127,7 @@ class Simulation:
         )
 
         # 2. Apply boundary conditions
-        self.apply_boundary_conditions()
+        self.apply_boundary_conditions(membrane)
 
         # 3. Update pressure from velocity gradient
         self.pressure -= (
@@ -127,9 +138,9 @@ class Simulation:
         self.time += self.dt
         self.phase += 2 * np.pi * self.source_frequency * self.dt
 
-    def advance(self, duration: float) -> None:
+    def advance(self, duration: float, membrane) -> None:
         """Step the simulation forward by ``duration`` seconds."""
         steps = round(duration / self.dt)
 
         for _ in range(steps):
-            self.step()
+            self.step(membrane)
